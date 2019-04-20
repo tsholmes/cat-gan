@@ -37,20 +37,19 @@ config.relu_alpha = 0.1
 config.flip_rate = 0.05
 config.gen_clipvalue = 0.5
 
-
 image_filenames = glob.glob(config.img_glob)
 
-def image_generator(batch_size, imgs):
+def image_generator(batch_size, imgs, size):
     counter = 0
     random.shuffle(imgs)
     while True:
-        color_images = np.zeros((batch_size, config.width, config.height, 3))
+        color_images = np.zeros((batch_size, size, size, 3))
         random.shuffle(imgs) 
         if ((counter+1)*batch_size>=len(imgs)):
             counter = 0
             random.shuffle(imgs)
         for i in range(batch_size):
-            img = Image.open(imgs[counter + i]).resize((config.height, config.width))
+            img = Image.open(imgs[counter + i]).resize((size, size))
             color_images[i] = np.array(img) / 127.5 - 1.
         yield color_images
         counter += batch_size
@@ -82,77 +81,70 @@ def calc_gradients(model, X_train, y_train):
 
 softrelu = lambda x: relu(x, alpha=config.relu_alpha)
 
-def make_discriminator():
+def make_discriminator(input_layer):
     model = Sequential()
     
-    model.add(Conv2D(128, kernel_size=(3, 3), padding='valid', input_shape=(config.height, config.width, 3)))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = Conv2D(128, kernel_size=(3, 3), padding='valid')(input_layer)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
     # 32
-    model.add(Conv2D(128, kernel_size=(4, 4), strides=(2, 2), padding='valid'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = Conv2D(128, kernel_size=(4, 4), strides=(2, 2), padding='valid')(x)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
     # 16
-    model.add(Conv2D(128, kernel_size=(4, 4), strides=(2, 2), padding='valid'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = Conv2D(128, kernel_size=(4, 4), strides=(2, 2), padding='valid')(x)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
     # 8
-    model.add(Conv2D(128, kernel_size=(4, 4), strides=(2, 2), padding='valid'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = Conv2D(128, kernel_size=(4, 4), strides=(2, 2), padding='valid')(x)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
-    model.add(Dropout(config.dis_dropout))
-    model.add(Flatten())
-    model.add(Dense(1, activation='sigmoid'))
+    x = Dropout(config.dis_dropout)(x)
+    x = Flatten()(x)
+    output = Dense(1, activation='sigmoid')(x)
     
-    input = Input(shape=(config.height, config.width, 3))
-    valid = model(input)
-    return Model(input, valid)
+    return Model(input_layer, output), output
 
-def make_generator():
-    model = Sequential()
-    
+def make_generator(input_layer):
     kernel_size = (3, 3)
     
-    model.add(Dense(128 * 16 * 16, activation='relu'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
-    model.add(Reshape((16, 16, 128)))
+    x = Dense(128 * 16 * 16, activation='relu')(input_layer)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
+    x = Reshape((16, 16, 128))(x)
     
-    model.add(Conv2D(128, kernel_size=kernel_size, padding='same'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = Conv2D(128, kernel_size=kernel_size, padding='same')(x)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
     # 32
-    model.add(UpSampling2D((2, 2)))
-    model.add(Conv2D(128, kernel_size=kernel_size, padding='same'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = UpSampling2D((2, 2))(x)
+    x = Conv2D(128, kernel_size=kernel_size, padding='same')(x)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
     # 64
-    model.add(UpSampling2D((2, 2)))
-    model.add(Conv2D(128, kernel_size=kernel_size, padding='same'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = UpSampling2D((2, 2))(x)
+    x = Conv2D(128, kernel_size=kernel_size, padding='same')(x)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
-    model.add(Conv2D(128, kernel_size=kernel_size, padding='same'))
-    model.add(BatchNormalization(momentum=config.batchnorm_momentum))
-    model.add(Activation(softrelu))
+    x = Conv2D(128, kernel_size=kernel_size, padding='same')(x)
+    x = BatchNormalization(momentum=config.batchnorm_momentum)(x)
+    x = Activation(softrelu)(x)
     
-    model.add(Conv2D(3, kernel_size=kernel_size, padding='same'))
-    model.add(Activation('tanh'))
+    x = Conv2D(3, kernel_size=kernel_size, padding='same')(x)
+    output = Activation('tanh')(x)
     
-    latent = Input(shape=(config.latent_size,))
-    return Model(latent, model(latent))
+    return Model(input_layer, output), output
 
-discriminator = make_discriminator()
-generator = make_generator()
+discriminator, disc_out = make_discriminator(Input(shape=(config.height, config.width, 3)))
 
-dmodel = Sequential()
-dmodel.add(discriminator)
+dmodel = discriminator
 dmodel.compile(
     loss='binary_crossentropy',
     optimizer=Adam(
@@ -161,12 +153,13 @@ dmodel.compile(
     ),
     metrics=['accuracy']
 )
-
 discriminator.trainable = False
 
-gmodel = Sequential()
-gmodel.add(generator)
-gmodel.add(discriminator)
+generator, gen_out = make_generator(Input(shape=(config.latent_size,)))
+
+gan_input = Input(shape=(config.latent_size,))
+gan_output = discriminator(generator(gan_input))
+gmodel = Model(gan_input, gan_output)
 gmodel.compile(
     loss='binary_crossentropy',
     optimizer=Adam(
@@ -178,7 +171,7 @@ gmodel.compile(
 
 wandb.run.summary['graph'] = wandb.Graph.from_keras(gmodel)
 
-real_generator = image_generator(config.batch_size, image_filenames)
+real_generator = image_generator(config.batch_size, image_filenames.copy(), config.width)
 
 example_noise = np.random.normal(0, 1, (config.examples, config.latent_size))
 incorrect = np.ones((config.batch_size, 1))
